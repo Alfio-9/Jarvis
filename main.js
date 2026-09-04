@@ -71,15 +71,14 @@ ipcMain.handle('open-file', async (event, filePath) => {
     }
 });
 
-// Load persistent node layout
+// Load persistent node layout (Resets every launch as requested)
 ipcMain.handle('load-layout', async () => {
     try {
         if (fs.existsSync(LAYOUT_FILE)) {
-            const data = await fs.promises.readFile(LAYOUT_FILE, 'utf8');
-            return JSON.parse(data);
+            await fs.promises.unlink(LAYOUT_FILE);
         }
     } catch (error) {
-        console.error('Failed to load layout:', error);
+        console.error('Failed to reset layout file:', error);
     }
     return {};
 });
