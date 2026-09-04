@@ -13,7 +13,8 @@ const state = {
     detector: null,
     lastTapTime: 0,
     pinchThreshold: 0.05,
-    tapCooldown: false
+    tapCooldown: false,
+    activeHand: localStorage.getItem('jarvis_active_hand') || 'DX' // 'DX' (Destra) o 'SX' (Sinistra)
 };
 
 // Color Schematics
@@ -154,12 +155,12 @@ async function initHandTracking() {
 
         const model = handPoseDetection.SupportedModels.MediaPipeHands;
         
-        // Use MediaPipe runtime with local WASM assets
+        // Use MediaPipe runtime with local WASM assets (maxHands: 2 to support hand switching)
         const detectorConfig = {
             runtime: 'mediapipe',
             solutionPath: './node_modules/@mediapipe/hands',
             modelType: 'full',
-            maxHands: 1
+            maxHands: 2
         };
 
         state.detector = await handPoseDetection.createDetector(model, detectorConfig);
@@ -171,6 +172,88 @@ async function initHandTracking() {
     }
 }
 
+// Sci-Fi Audio Feedback Synthesizer (Web Audio API)
+function playSciFiFeedback(freqStart = 700, freqEnd = 1200, duration = 0.12) {
+    try {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sine';
+        const now = audioCtx.currentTime;
+        osc.frequency.setValueAtTime(freqStart, now);
+        osc.frequency.exponentialRampToValueAtTime(freqEnd, now + duration);
+        gain.gain.setValueAtTime(0.12, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(now);
+        osc.stop(now + duration);
+    } catch (e) {
+        // Safe fallback
+    }
+}
+
+// Hand Switcher Controller
+export function setActiveHand(hand, playSound = true) {
+    state.activeHand = hand;
+    try {
+        localStorage.setItem('jarvis_active_hand', hand);
+    } catch (e) {}
+
+    const btn = document.getElementById('hand-toggle-btn');
+    const pillDx = document.getElementById('hand-pill-dx');
+    const pillSx = document.getElementById('hand-pill-sx');
+    const camTag = document.getElementById('webcam-hand-tag');
+
+    if (btn && pillDx && pillSx) {
+        if (hand === 'SX') {
+            btn.classList.add('is-sx');
+            pillDx.classList.remove('active');
+            pillSx.classList.add('active');
+            if (camTag) camTag.textContent = 'MANO SX';
+        } else {
+            btn.classList.remove('is-sx');
+            pillDx.classList.add('active');
+            pillSx.classList.remove('active');
+            if (camTag) camTag.textContent = 'MANO DX';
+        }
+    }
+
+    if (cursorMesh && cursorMesh.material) {
+        cursorMesh.material.color.setHex(hand === 'SX' ? 0xff0077 : 0x00f3ff);
+    }
+
+    if (playSound) {
+        if (hand === 'SX') {
+            playSciFiFeedback(500, 950, 0.12);
+        } else {
+            playSciFiFeedback(700, 1200, 0.12);
+        }
+    }
+
+    // Floating HUD status pulse
+    const statusElem = document.getElementById('status-indicator');
+    if (statusElem) {
+        const prevText = statusElem.textContent;
+        statusElem.textContent = `MANO ATTIVA: ${hand === 'DX' ? 'DESTRA (DX)' : 'SINISTRA (SX)'}`;
+        statusElem.style.borderColor = hand === 'SX' ? '#ff0077' : '#00f3ff';
+        statusElem.style.color = hand === 'SX' ? '#ff0077' : '#00f3ff';
+
+        setTimeout(() => {
+            if (statusElem.textContent.startsWith('MANO ATTIVA:')) {
+                statusElem.textContent = prevText.startsWith('MANO ATTIVA:') ? 'SYSTEM ONLINE // TRACKING ACTIVE' : prevText;
+                statusElem.style.borderColor = '#00f3ff';
+                statusElem.style.color = '#00f3ff';
+            }
+        }, 1500);
+    }
+}
+
+export function toggleActiveHand() {
+    const nextHand = state.activeHand === 'DX' ? 'SX' : 'DX';
+    setActiveHand(nextHand, true);
+}
+
 // Hand Tracking Frame Loop
 async function trackHands() {
     const video = document.getElementById('webcam');
@@ -178,8 +261,19 @@ async function trackHands() {
     if (state.detector && video.readyState >= 2) {
         const hands = await state.detector.estimateHands(video);
 
-        if (hands.length > 0) {
-            const keypoints = hands[0].keypoints;
+        // Mapping: sul feed webcam frontale non specchiato nei pixel raw,
+        // MediaPipe etichetta la mano DESTRA fisica come 'Left'
+        // e la mano SINISTRA fisica come 'Right'.
+        const targetModelHandedness = state.activeHand === 'DX' ? 'left' : 'right';
+
+        let chosenHand = null;
+        if (hands && hands.length > 0) {
+            chosenHand = hands.find((h) => h.handedness && h.handedness.toLowerCase() === targetModelHandedness);
+        }
+
+        if (chosenHand) {
+            cursorMesh.visible = true;
+            const keypoints = chosenHand.keypoints;
             const indexTip = keypoints.find((k) => k.name === 'index_finger_tip');
             const thumbTip = keypoints.find((k) => k.name === 'thumb_tip');
 
@@ -205,7 +299,15 @@ async function trackHands() {
                 processGestures(targetPos, pinchDist);
             }
         } else {
-            document.getElementById('gesture-status').textContent = 'GESTURE: SEARCHING';
+            cursorMesh.visible = false;
+            document.getElementById('gesture-status').textContent = `GESTURE: SEARCHING [${state.activeHand}]`;
+
+            // Safety: release grab if hand is lost mid-drag
+            if (state.isGrabbing && state.selectedNode) {
+                state.isGrabbing = false;
+                saveCurrentLayout();
+                state.selectedNode = null;
+            }
         }
     }
 
@@ -229,7 +331,7 @@ function processGestures(cursorPos, pinchDist) {
     const intersects = raycaster.intersectObjects(meshes);
 
     if (pinchDist < state.pinchThreshold) {
-        statusElem.textContent = 'GESTURE: PINCH/GRAB';
+        statusElem.textContent = `GESTURE: PINCH/GRAB [${state.activeHand}]`;
 
         if (!state.isGrabbing) {
             if (intersects.length > 0) {
@@ -250,7 +352,9 @@ function processGestures(cursorPos, pinchDist) {
             state.selectedNode.position.copy(cursorPos);
         }
     } else {
-        statusElem.textContent = intersects.length > 0 ? 'GESTURE: HOVER' : 'GESTURE: IDLE';
+        statusElem.textContent = intersects.length > 0 
+            ? `GESTURE: HOVER [${state.activeHand}]` 
+            : `GESTURE: IDLE [${state.activeHand}]`;
 
         if (state.isGrabbing && state.selectedNode) {
             // Release Grab Action & Save Node Layout Position
@@ -329,3 +433,22 @@ initDesktop()
         initHandTracking();
         animate();
     });
+
+// Event Listeners for Hand Switcher
+const handToggleBtn = document.getElementById('hand-toggle-btn');
+if (handToggleBtn) {
+    handToggleBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleActiveHand();
+    });
+}
+
+window.addEventListener('keydown', (e) => {
+    if (e.key === 'h' || e.key === 'H') {
+        toggleActiveHand();
+    }
+});
+
+// Initialize UI with persistent active hand
+setActiveHand(state.activeHand, false);
