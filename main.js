@@ -31,23 +31,29 @@ ipcMain.handle('get-desktop-items', async () => {
     const desktopPath = app.getPath('desktop');
     try {
         const files = await fs.promises.readdir(desktopPath, { withFileTypes: true });
-        return files.map(file => {
-            const ext = path.extname(file.name).toLowerCase();
-            let type = 'document';
+        
+        // File di sistema e file nascosti da escludere dall'interfaccia 3D
+        const IGNORED_FILES = new Set(['desktop.ini', 'thumbs.db', '.ds_store']);
 
-            if (file.isDirectory()) {
-                type = 'folder';
-            } else if (['.exe', '.app', '.bat', '.sh', '.ink'].includes(ext)) {
-                type = 'executable';
-            }
+        return files
+            .filter(file => !IGNORED_FILES.has(file.name.toLowerCase()) && !file.name.startsWith('.'))
+            .map(file => {
+                const ext = path.extname(file.name).toLowerCase();
+                let type = 'document';
 
-            return {
-                name: file.name,
-                path: path.join(desktopPath, file.name),
-                type: type,
-                extension: ext
-            };
-        });
+                if (file.isDirectory()) {
+                    type = 'folder';
+                } else if (['.exe', '.app', '.bat', '.sh', '.lnk', '.ink'].includes(ext)) {
+                    type = 'executable';
+                }
+
+                return {
+                    name: file.name,
+                    path: path.join(desktopPath, file.name),
+                    type: type,
+                    extension: ext
+                };
+            });
     } catch (error) {
         console.error('Error reading desktop directory:', error);
         return [];
