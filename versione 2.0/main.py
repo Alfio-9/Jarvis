@@ -283,8 +283,8 @@ class JarvisApp:
                 audio_synth.sfx_release()
                 self.grabbed_node = None
 
-        # Handle File / Folder Launch (Middle Pinch or Double Pinch)
-        if (is_middle_pinch or is_double_pinch) and (now - self.launch_cooldown > 0.9):
+        # Handle File / Folder Launch (Strictly Middle Pinch [Thumb + Middle] ONLY)
+        if is_middle_pinch and (now - self.launch_cooldown > 0.9):
             node_to_launch = self.grabbed_node or self.hovered_node
             if node_to_launch:
                 self.launch_cooldown = now

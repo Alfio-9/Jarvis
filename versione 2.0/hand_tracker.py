@@ -206,10 +206,27 @@ class HandTracker:
                 h_data.norm_thumb_index = d_thumb_index
                 h_data.norm_thumb_middle = d_thumb_middle
 
-                # Pinch states with hysteresis
-                pinch_thresh = 0.72 if self.is_grabbing else 0.52
-                h_data.is_pinching = (d_thumb_index < pinch_thresh) and (d_thumb_middle > 0.32)
-                h_data.is_middle_pinching = (d_thumb_middle < 0.52) and (d_thumb_index > 0.36)
+                # Strict Mutually Exclusive Pinch states with hysteresis
+                # Index Pinch: Thumb (4) + Index (8)
+                # Middle Pinch: Thumb (4) + Middle (12)
+                index_thresh = 0.65 if getattr(self, 'was_index_pinching', False) else 0.45
+                is_index_pinch = (d_thumb_index < index_thresh) and (d_thumb_index < d_thumb_middle * 0.85)
+
+                middle_thresh = 0.48
+                is_middle_pinch = (d_thumb_middle < middle_thresh) and (d_thumb_middle < d_thumb_index * 0.85)
+
+                if is_index_pinch:
+                    h_data.is_pinching = True
+                    h_data.is_middle_pinching = False
+                    self.was_index_pinching = True
+                elif is_middle_pinch:
+                    h_data.is_pinching = False
+                    h_data.is_middle_pinching = True
+                    self.was_index_pinching = False
+                else:
+                    h_data.is_pinching = False
+                    h_data.is_middle_pinching = False
+                    self.was_index_pinching = False
 
                 # Directional pointing (Index pointing up / down)
                 d_index_wrist = np.linalg.norm(smoothed[8, :2] - smoothed[0, :2])
@@ -309,12 +326,6 @@ class HandTracker:
                     self.smoothed_cursor_ndc[1] += (ndc_y - self.smoothed_cursor_ndc[1]) * 0.70
 
                     # Status telemetry text
-                    now = time.time()
-                    if primary.is_pinching and not self.double_pinch_triggered:
-                        if now - self.last_pinch_time < 0.40:
-                            self.double_pinch_triggered = True
-                        self.last_pinch_time = now
-
                     if is_prayer:
                         self.gesture_status_text = "PREGHIERA 🙏 // CHIUDI DOCUMENTO"
                     elif primary.is_middle_pinching:
@@ -362,13 +373,20 @@ class HandTracker:
                 radius = 4 if j_idx in [4, 8, 12, 16, 20] else 2
                 cv2.circle(overlay, pt, radius, (255, 255, 255), -1, cv2.LINE_AA)
 
-            # If pinching, draw glowing connection between thumb and index
+            # If pinching with index: draw cyan/gold connection between thumb and index
             if h_data.is_pinching:
                 t_pt = (int(pts[4, 0] * w), int(pts[4, 1] * h))
                 i_pt = (int(pts[8, 0] * w), int(pts[8, 1] * h))
                 cv2.line(overlay, t_pt, i_pt, (50, 220, 255), 4, cv2.LINE_AA)
                 cv2.circle(overlay, t_pt, 6, (0, 255, 255), -1, cv2.LINE_AA)
                 cv2.circle(overlay, i_pt, 6, (0, 255, 255), -1, cv2.LINE_AA)
+            # If pinching with middle: draw neon green connection between thumb and middle
+            elif h_data.is_middle_pinching:
+                t_pt = (int(pts[4, 0] * w), int(pts[4, 1] * h))
+                m_pt = (int(pts[12, 0] * w), int(pts[12, 1] * h))
+                cv2.line(overlay, t_pt, m_pt, (0, 255, 102), 4, cv2.LINE_AA)
+                cv2.circle(overlay, t_pt, 6, (0, 255, 102), -1, cv2.LINE_AA)
+                cv2.circle(overlay, m_pt, 6, (0, 255, 102), -1, cv2.LINE_AA)
 
         # Resize to PIP size
         resized = cv2.resize(overlay, (self.pip_width, self.pip_height))

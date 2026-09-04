@@ -86,16 +86,29 @@ class MarkdownViewer:
     def scroll_by(self, delta: float):
         self.target_scroll_y = max(0.0, min(self.max_scroll, self.target_scroll_y + delta))
 
+    def _safe_render(self, font_name: str, text: str, color: tuple):
+        # Strip null bytes and non-printable control chars that crash pygame.font.render
+        clean = ''.join(ch for ch in str(text) if ch != '\x00' and (ord(ch) >= 32 or ch == '\t'))
+        if not clean.strip():
+            clean = ' '
+        try:
+            return self.fonts[font_name].render(clean, True, color)
+        except Exception:
+            try:
+                return self.fonts['body'].render(' ', True, color)
+            except Exception:
+                return pygame.Surface((1, 1))
+
     def _parse_content(self):
         """Prepares rendered text surfaces with wrapped lines."""
         self.rendered_items = []
         in_code_block = False
-        content_width = 860
 
         total_height = 20
 
         for line in self.raw_lines:
-            stripped = line.rstrip('\r\n')
+            # Strip null bytes and line endings
+            stripped = line.replace('\x00', '').rstrip('\r\n')
 
             # Code fence toggle
             if stripped.startswith('```'):
@@ -103,41 +116,41 @@ class MarkdownViewer:
                 continue
 
             if in_code_block:
-                surf = self.fonts['code'].render(stripped if stripped else ' ', True, MD_THEME['code_text'])
+                surf = self._safe_render('code', stripped, MD_THEME['code_text'])
                 self.rendered_items.append(('code', surf, 22))
                 total_height += 22
                 continue
 
             if stripped.startswith('# '):
                 text = stripped[2:].strip()
-                surf = self.fonts['h1'].render(text, True, MD_THEME['h1'])
+                surf = self._safe_render('h1', text, MD_THEME['h1'])
                 self.rendered_items.append(('h1', surf, 36))
                 total_height += 36
             elif stripped.startswith('## '):
                 text = stripped[3:].strip()
-                surf = self.fonts['h2'].render(text, True, MD_THEME['h2'])
+                surf = self._safe_render('h2', text, MD_THEME['h2'])
                 self.rendered_items.append(('h2', surf, 32))
                 total_height += 32
             elif stripped.startswith('### '):
                 text = stripped[4:].strip()
-                surf = self.fonts['h3'].render(text, True, MD_THEME['h3'])
+                surf = self._safe_render('h3', text, MD_THEME['h3'])
                 self.rendered_items.append(('h3', surf, 28))
                 total_height += 28
             elif stripped.startswith('- ') or stripped.startswith('* '):
                 text = '  • ' + stripped[2:].strip()
-                surf = self.fonts['body'].render(text, True, MD_THEME['text'])
+                surf = self._safe_render('body', text, MD_THEME['text'])
                 self.rendered_items.append(('bullet', surf, 24))
                 total_height += 24
             elif stripped.startswith('> '):
                 text = '│ ' + stripped[2:].strip()
-                surf = self.fonts['body'].render(text, True, MD_THEME['quote_bar'])
+                surf = self._safe_render('body', text, MD_THEME['quote_bar'])
                 self.rendered_items.append(('quote', surf, 24))
                 total_height += 24
             elif stripped == '':
                 self.rendered_items.append(('spacer', None, 14))
                 total_height += 14
             else:
-                surf = self.fonts['body'].render(stripped, True, MD_THEME['text'])
+                surf = self._safe_render('body', stripped, MD_THEME['text'])
                 self.rendered_items.append(('body', surf, 22))
                 total_height += 22
 
@@ -168,14 +181,14 @@ class MarkdownViewer:
         pygame.draw.line(screen, (255, 255, 255), (modal_x, modal_y), (modal_x + accent_len, modal_y), 3)
         pygame.draw.line(screen, (255, 255, 255), (modal_x, modal_y), (modal_x, modal_y + accent_len), 3)
         pygame.draw.line(screen, (255, 255, 255), (modal_x + modal_w, modal_y + modal_h), (modal_x + modal_w - accent_len, modal_y + modal_h), 3)
-        pygame.draw.line(screen, (255, 255, 255), (modal_x + modal_w, modal_y + modal_h), (modal_x + modal_w, modal_y + modal_h - accent_len), 3)
+        pygame.draw.line(screen, (255, 255, 255), (modal_x + modal_w, modal_y + modal_h), (modal_x + modal_w - accent_len, modal_y + modal_h), 3)
 
         # Header bar
         header_h = 44
         pygame.draw.rect(screen, MD_THEME['header_bg'], (modal_x, modal_y, modal_w, header_h))
         pygame.draw.line(screen, MD_THEME['border'], (modal_x, modal_y + header_h), (modal_x + modal_w, modal_y + header_h), 1)
 
-        title_surf = self.fonts['title'].render(f"HOLOGRAPHIC VIEWER // {self.file_name.upper()}", True, MD_THEME['title'])
+        title_surf = self._safe_render('title', f"HOLOGRAPHIC VIEWER // {self.file_name.upper()}", MD_THEME['title'])
         screen.blit(title_surf, (modal_x + 18, modal_y + 10))
 
         hint_surf = self.fonts['meta'].render("INDICA SU ▲ / GIÙ ▼ PER SCROLL • MANI A PREGHIERA 🙏 O [ESC] PER CHIUDERE", True, (130, 170, 200))
