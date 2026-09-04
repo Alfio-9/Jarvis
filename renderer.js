@@ -13,7 +13,9 @@ const state = {
     detector: null,
     lastTapTime: 0,
     pinchThreshold: 0.08,
-    tapCooldown: false
+    tapCooldown: false,
+    activeHand: localStorage.getItem('jarvis_active_hand') || 'DX',
+    lastHandDist: null
 };
 
 // Color Schematics
@@ -167,7 +169,6 @@ async function initHandTracking() {
             solutionPath: './node_modules/@mediapipe/hands',
             modelType: 'full',
             maxHands: 2
-            maxHands: 2
         };
 
         state.detector = await handPoseDetection.createDetector(model, detectorConfig);
@@ -229,6 +230,9 @@ export function setActiveHand(hand, playSound = true) {
     if (cursorMesh && cursorMesh.material) {
         cursorMesh.material.color.setHex(hand === 'SX' ? 0xff0077 : 0x00f3ff);
     }
+    if (cursorMesh2 && cursorMesh2.material) {
+        cursorMesh2.material.color.setHex(hand === 'SX' ? 0x00f3ff : 0xff0077);
+    }
 
     if (playSound) {
         if (hand === 'SX') {
@@ -273,11 +277,17 @@ async function trackHands() {
             cursorMesh.visible = true;
             cursorMesh2.visible = true;
 
-            const hand1Index = hands[0].keypoints.find((k) => k.name === 'index_finger_tip');
-            const hand2Index = hands[1].keypoints.find((k) => k.name === 'index_finger_tip');
+            // In mirrored selfie camera coordinate space:
+            // MediaPipe labels physical Right hand as 'Left', physical Left hand as 'Right'.
+            const targetModelHandedness = state.activeHand === 'DX' ? 'left' : 'right';
+            const primaryHand = hands.find((h) => h.handedness && h.handedness.toLowerCase() === targetModelHandedness) || hands[0];
+            const secondaryHand = hands.find((h) => h !== primaryHand) || hands[1];
+
+            const hand1Index = primaryHand.keypoints.find((k) => k.name === 'index_finger_tip');
+            const hand2Index = secondaryHand.keypoints.find((k) => k.name === 'index_finger_tip');
 
             if (hand1Index && hand2Index) {
-                // Hand 1 Cursor
+                // Hand 1 Cursor (Primary / Active Hand)
                 const ndcX1 = -((hand1Index.x / video.videoWidth) * 2 - 1);
                 const ndcY1 = -((hand1Index.y / video.videoHeight) * 2 - 1);
                 const vec1 = new THREE.Vector3(ndcX1, ndcY1, 0.5).unproject(camera);
@@ -285,7 +295,7 @@ async function trackHands() {
                 const dist1 = -camera.position.z / dir1.z;
                 cursorMesh.position.copy(camera.position.clone().add(dir1.multiplyScalar(dist1)));
 
-                // Hand 2 Cursor
+                // Hand 2 Cursor (Secondary Hand)
                 const ndcX2 = -((hand2Index.x / video.videoWidth) * 2 - 1);
                 const ndcY2 = -((hand2Index.y / video.videoHeight) * 2 - 1);
                 const vec2 = new THREE.Vector3(ndcX2, ndcY2, 0.5).unproject(camera);
@@ -338,25 +348,18 @@ async function trackHands() {
             cursorMesh.visible = false;
             cursorMesh2.visible = false;
             state.lastHandDist = null;
-            document.getElementById('gesture-status').textContent = 'GESTURE: SEARCHING';
+            document.getElementById('gesture-status').textContent = `GESTURE: SEARCHING [${state.activeHand}]`;
+
+            // Safety: release grab if hand is lost mid-drag
+            if (state.isGrabbing && state.selectedNode) {
+                state.isGrabbing = false;
+                saveCurrentLayout();
+                state.selectedNode = null;
+            }
         }
     }
 
     requestAnimationFrame(trackHands);
-}
-
-// Safety: release grab if hand is lost mid-drag
-if (state.isGrabbing && state.selectedNode) {
-    state.isGrabbing = false;
-    saveCurrentLayout();
-    state.selectedNode = null;
-}
-state.lastHandDist = null;
-document.getElementById('gesture-status').textContent = 'GESTURE: SEARCHING';
-        }
-    }
-
-requestAnimationFrame(trackHands);
 }
 
 // Spatial Gesture Processing Logic
@@ -388,7 +391,7 @@ function processGestures(cursorPos, pinchDist, ndcVec) {
             if (targetMesh) {
                 state.selectedNode = targetMesh;
                 state.isGrabbing = true;
-                statusElem.textContent = 'GESTURE: PICK / GRABBED';
+                statusElem.textContent = `GESTURE: PICK / GRABBED [${state.activeHand}]`;
 
                 // Double Pinch / Air Tap Detection (600ms window)
                 const now = Date.now();
@@ -400,15 +403,15 @@ function processGestures(cursorPos, pinchDist, ndcVec) {
                 state.lastTapTime = now;
             }
         } else if (state.selectedNode) {
-            statusElem.textContent = 'GESTURE: DRAGGING NODE';
+            statusElem.textContent = `GESTURE: DRAGGING NODE [${state.activeHand}]`;
             // Drag node along with active spatial hand cursor
             state.selectedNode.position.copy(cursorPos);
         }
     } else {
         if (intersects.length > 0) {
-            statusElem.textContent = 'GESTURE: HOVER (' + intersects[0].object.userData.name + ')';
+            statusElem.textContent = `GESTURE: HOVER (${intersects[0].object.userData.name}) [${state.activeHand}]`;
         } else {
-            statusElem.textContent = 'GESTURE: IDLE';
+            statusElem.textContent = `GESTURE: IDLE [${state.activeHand}]`;
         }
 
         if (state.isGrabbing && state.selectedNode) {
@@ -507,3 +510,6 @@ window.addEventListener('keydown', (e) => {
 
 // Initialize UI with persistent active hand
 setActiveHand(state.activeHand, false);
+
+window.setActiveHand = setActiveHand;
+window.toggleActiveHand = toggleActiveHand;
