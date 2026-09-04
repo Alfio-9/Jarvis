@@ -1,66 +1,122 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>JARVIS 3D Spatial Desktop</title>
-    <link rel="stylesheet" href="styles.css">
-    <script type="importmap">
-    {
-      "imports": {
-        "three": "./node_modules/three/build/three.module.js",
-        "three/examples/jsm/controls/OrbitControls.js": "./node_modules/three/examples/jsm/controls/OrbitControls.js"
-      }
-    }
-    </script>
-    <script src="./node_modules/@mediapipe/hands/hands.js"></script>
-    <script src="./node_modules/@tensorflow/tfjs-core/dist/tf-core.min.js"></script>
-    <script src="./node_modules/@tensorflow/tfjs-backend-webgl/dist/tf-backend-webgl.min.js"></script>
-    <script src="./node_modules/@tensorflow/tfjs-converter/dist/tf-converter.min.js"></script>
-    <script src="./node_modules/@tensorflow-models/hand-pose-detection/dist/hand-pose-detection.min.js"></script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JARVIS // 3D Spatial Desktop 2.0</title>
+  <link rel="stylesheet" href="./styles.css">
 </head>
-
 <body>
-    <div id="canvas-container"></div>
+  <!-- 3D Three.js WebGL Viewport -->
+  <div id="canvas-container"></div>
 
-    <div id="hud-overlay">
-        <div class="hud-header">
-            <div class="hud-brand">
-                <h1>JARVIS // SPATIAL OS</h1>
-                <span class="hud-sub">HOLOGRAPHIC DESKTOP</span>
-            </div>
-            
-            <div class="hud-controls">
-                <button id="hand-toggle-btn" class="hud-btn" type="button" title="Cambia mano attiva (DX / SX) [Scorciatoia tastiera: H]">
-                    <div class="hud-btn-content">
-                        <svg class="hand-svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M18 11V6a2 2 0 0 0-4 0v4M14 10V4a2 2 0 0 0-4 0v6M10 10.5V6a2 2 0 0 0-4 0v8a6 6 0 0 0 6 6h2a6 6 0 0 0 6-6v-3a2 2 0 0 0-4 0" />
-                        </svg>
-                        <span class="hud-btn-text">MANO:</span>
-                        <div class="hand-selector">
-                            <span id="hand-pill-dx" class="hand-pill active">DX</span>
-                            <span class="hand-divider">/</span>
-                            <span id="hand-pill-sx" class="hand-pill">SX</span>
-                        </div>
-                    </div>
-                </button>
-                <div id="status-indicator">SYSTEM READY</div>
-            </div>
+  <!-- Holographic 3D Floating Labels Layer -->
+  <div id="labels-container"></div>
+
+  <!-- Holographic HUD Overlay -->
+  <div id="hud-overlay">
+    <header class="hud-header">
+      <div class="hud-brand">
+        <h1>
+          JARVIS // SPATIAL OS
+          <span class="version-tag">2.0</span>
+        </h1>
+        <span class="hud-sub">HOLOGRAPHIC DESKTOP INTERFACE</span>
+      </div>
+
+      <!-- Hierarchical 3D Folder Navigation Breadcrumb & Back Action -->
+      <div id="hud-nav" class="hud-nav" style="display: none;">
+        <button id="nav-back-btn" class="hud-btn hud-back-btn" type="button" title="Torna alla cartella precedente / Desktop">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M19 12H5M12 19l-7-7 7-7"/>
+          </svg>
+          <span class="hud-btn-text">TORNA INDIETRO</span>
+        </button>
+        <div class="hud-breadcrumb-container">
+          <span class="hud-breadcrumb-label">LOC:</span>
+          <span id="hud-breadcrumb-path" class="hud-breadcrumb-path">DESKTOP</span>
         </div>
+      </div>
 
-        <div class="hud-footer">
-            <div id="gesture-status">GESTURE: IDLE [DX]</div>
-            <div id="fps-counter">FPS: 00</div>
+      <div class="hud-controls">
+        <button id="hand-toggle-btn" class="hud-btn" type="button" title="Switch active tracking hand (DX / SX) [Hotkey: H]">
+          <div class="hud-btn-content">
+            <svg class="hand-svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M18 11V6a2 2 0 0 0-4 0v4M14 10V4a2 2 0 0 0-4 0v6M10 10.5V6a2 2 0 0 0-4 0v8a6 6 0 0 0 6 6h2a6 6 0 0 0 6-6v-3a2 2 0 0 0-4 0" />
+            </svg>
+            <span class="hud-btn-text">HAND:</span>
+            <div class="hand-selector">
+              <span id="hand-pill-dx" class="hand-pill active">DX</span>
+              <span class="hand-divider">/</span>
+              <span id="hand-pill-sx" class="hand-pill">SX</span>
+            </div>
+          </div>
+        </button>
+
+        <button id="reset-btn" class="hud-btn hud-reset-btn" type="button" title="Reset layout nodi 3D e visuale telecamera [Hotkey: R]">
+          <div class="hud-btn-content">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+              <path d="M3 3v5h5"/>
+            </svg>
+            <span class="hud-btn-text">RESET</span>
+          </div>
+        </button>
+
+        <div id="status-indicator">INITIALIZING SYSTEM...</div>
+      </div>
+    </header>
+
+    <footer class="hud-footer">
+      <div id="gesture-status">GESTURE: STANDBY</div>
+      <div class="hud-hints">[PINCH: DRAG] &bull; [MIDDLE PINCH: LAUNCH] &bull; [2-HAND PINCH: ZOOM] &bull; [MOUSE: ORBIT]</div>
+      <div id="fps-counter">FPS: --</div>
+    </footer>
+  </div>
+
+  <!-- Picture-in-Picture Webcam HUD -->
+  <div id="webcam-container">
+    <div id="webcam-hud-label">CAM // <span id="webcam-hand-tag">RIGHT (DX)</span></div>
+    <div class="webcam-viewport">
+      <video id="webcam" autoplay playsinline muted></video>
+      <canvas id="webcam-skeleton-canvas"></canvas>
+    </div>
+  </div>
+
+  <!-- Holographic Markdown Document Viewer Modal -->
+  <div id="markdown-modal" class="md-modal-backdrop" style="display: none;">
+    <div class="md-modal-card">
+      <div class="md-modal-header">
+        <div class="md-modal-title-group">
+          <span class="md-modal-icon">📝</span>
+          <div>
+            <h2 id="md-modal-title" class="md-modal-title">DOCUMENT.MD</h2>
+            <div id="md-modal-path" class="md-modal-path">PATH/TO/DOCUMENT.MD</div>
+          </div>
         </div>
-    </div>
+        <div class="md-modal-actions">
+          <button id="md-modal-close-btn" class="hud-btn md-close-btn" type="button" title="Chiudi visualizzatore [ESC]">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+            <span class="hud-btn-text">CHIUDI [ESC]</span>
+          </button>
+        </div>
+      </div>
 
-    <div id="webcam-container">
-        <div id="webcam-hud-label">CAM // <span id="webcam-hand-tag">MANO DX</span></div>
-        <video id="webcam" autoplay playsinline muted></video>
-    </div>
+      <div id="md-modal-body" class="md-modal-body">
+        <!-- Rendered Cyberpunk Markdown HTML -->
+      </div>
 
-    <script src="renderer.js" type="module"></script>
+      <div class="md-modal-footer">
+        <span id="md-modal-meta" class="md-modal-meta">LINES: -- // WORDS: --</span>
+        <span class="md-modal-hint">HOLOGRAPHIC DOCUMENT READER &bull; ROTAZIONE SCROLL ATTIVA</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Application Logic (Vite / ES Module) -->
+  <script type="module" src="./renderer.js"></script>
 </body>
-
 </html>
