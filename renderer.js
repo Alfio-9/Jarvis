@@ -153,8 +153,11 @@ async function initHandTracking() {
         await new Promise((resolve) => (video.onloadedmetadata = resolve));
 
         const model = handPoseDetection.SupportedModels.MediaPipeHands;
+        
+        // Use MediaPipe runtime with local WASM assets
         const detectorConfig = {
-            runtime: 'tfjs',
+            runtime: 'mediapipe',
+            solutionPath: './node_modules/@mediapipe/hands',
             modelType: 'full',
             maxHands: 1
         };
@@ -164,7 +167,7 @@ async function initHandTracking() {
         trackHands();
     } catch (err) {
         console.error('Webcam / Handtracking initialization failed:', err);
-        document.getElementById('status-indicator').textContent = 'ERROR // FALLBACK TO MOUSE';
+        document.getElementById('status-indicator').textContent = 'ERROR: ' + (err.message || 'FALLBACK TO MOUSE');
     }
 }
 
