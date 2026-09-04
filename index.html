@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JARVIS 3D Spatial Desktop</title>
+    <link rel="stylesheet" href="styles.css">
+    <script type="importmap">
+    {
+      "imports": {
+        "three": "./node_modules/three/build/three.module.js",
+        "three/examples/jsm/controls/OrbitControls.js": "./node_modules/three/examples/jsm/controls/OrbitControls.js"
+      }
+    }
+    </script>
+    <script src="./node_modules/@tensorflow/tfjs-core/dist/tf-core.min.js"></script>
+    <script src="./node_modules/@tensorflow/tfjs-backend-webgl/dist/tf-backend-webgl.min.js"></script>
+    <script src="./node_modules/@tensorflow/tfjs-converter/dist/tf-converter.min.js"></script>
+    <script src="./node_modules/@tensorflow-models/hand-pose-detection/dist/hand-pose-detection.min.js"></script>
+</head>
+
+<body>
+    <div id="canvas-container"></div>
+
+    <div id="hud-overlay">
+        <div class="hud-header">
+            <h1>JARVIS // SPATIAL OS</h1>
+            <div id="status-indicator">SYSTEM READY</div>
+        </div>
+
+        <div class="hud-footer">
+            <div id="gesture-status">GESTURE: IDLE</div>
+            <div id="fps-counter">FPS: 00</div>
+        </div>
+    </div>
+
+    <video id="webcam" autoplay playsinline muted></video>
+
+    <script src="renderer.js" type="module"></script>
+</body>
+
+</html>
