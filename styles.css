@@ -23,19 +23,45 @@ body {
     z-index: 1;
 }
 
-#webcam {
+#webcam-container {
     position: absolute;
     bottom: 20px;
     right: 20px;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+}
+
+#webcam-hud-label {
+    font-size: 10px;
+    letter-spacing: 1.5px;
+    color: #00f3ff;
+    font-family: monospace;
+    background: rgba(3, 7, 18, 0.85);
+    padding: 2px 6px;
+    border: 1px solid rgba(0, 243, 255, 0.4);
+    border-radius: 2px;
+    text-shadow: 0 0 5px #00f3ff;
+}
+
+#webcam {
     width: 160px;
     height: 120px;
     border: 1px solid #00f3ff;
     border-radius: 4px;
     transform: scaleX(-1);
-    opacity: 0.6;
-    z-index: 10;
+    opacity: 0.65;
     background: #000;
     object-fit: cover;
+    box-shadow: 0 0 10px rgba(0, 243, 255, 0.2);
+    transition: opacity 0.2s ease, box-shadow 0.2s ease;
+}
+
+#webcam:hover {
+    opacity: 0.95;
+    box-shadow: 0 0 15px rgba(0, 243, 255, 0.5);
 }
 
 #hud-overlay {
@@ -63,10 +89,122 @@ body {
     background: linear-gradient(90deg, rgba(0, 243, 255, 0.1), transparent);
 }
 
-.hud-header h1 {
+.hud-brand {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.hud-brand h1 {
     font-size: 1.2rem;
     letter-spacing: 3px;
     text-shadow: 0 0 8px #00f3ff;
+}
+
+.hud-sub {
+    font-size: 0.65rem;
+    letter-spacing: 2px;
+    opacity: 0.6;
+    font-family: monospace;
+}
+
+.hud-controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    pointer-events: auto;
+}
+
+.hud-btn {
+    pointer-events: auto;
+    cursor: pointer;
+    background: rgba(0, 243, 255, 0.08);
+    border: 1px solid #00f3ff;
+    color: #00f3ff;
+    padding: 5px 12px;
+    border-radius: 4px;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    font-size: 0.8rem;
+    letter-spacing: 1px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    outline: none;
+    box-shadow: 0 0 8px rgba(0, 243, 255, 0.2);
+}
+
+.hud-btn:hover {
+    background: rgba(0, 243, 255, 0.2);
+    box-shadow: 0 0 15px rgba(0, 243, 255, 0.5);
+    transform: translateY(-1px);
+}
+
+.hud-btn:active {
+    transform: translateY(1px) scale(0.98);
+}
+
+.hud-btn-content {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.hand-svg {
+    transition: transform 0.3s ease, filter 0.3s ease, color 0.3s ease;
+    filter: drop-shadow(0 0 4px #00f3ff);
+}
+
+/* Modalità Mano Sinistra (SX): mirroring dell'icona e illuminazione magenta sci-fi */
+.hud-btn.is-sx {
+    border-color: #ff0077;
+    color: #ff0077;
+    background: rgba(255, 0, 119, 0.1);
+    box-shadow: 0 0 10px rgba(255, 0, 119, 0.3);
+}
+
+.hud-btn.is-sx:hover {
+    background: rgba(255, 0, 119, 0.25);
+    box-shadow: 0 0 18px rgba(255, 0, 119, 0.6);
+}
+
+.hud-btn.is-sx .hand-svg {
+    transform: scaleX(-1);
+    filter: drop-shadow(0 0 5px #ff0077);
+    color: #ff0077;
+}
+
+.hand-selector {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-family: monospace;
+    font-weight: bold;
+}
+
+.hand-pill {
+    padding: 1px 5px;
+    border-radius: 2px;
+    opacity: 0.35;
+    transition: all 0.2s ease;
+}
+
+.hand-pill.active {
+    opacity: 1;
+    background: rgba(0, 243, 255, 0.25);
+    border: 1px solid #00f3ff;
+    text-shadow: 0 0 8px #00f3ff;
+}
+
+.hud-btn.is-sx .hand-pill.active {
+    background: rgba(255, 0, 119, 0.3);
+    border-color: #ff0077;
+    color: #ff0077;
+    text-shadow: 0 0 8px #ff0077;
+}
+
+.hand-divider {
+    opacity: 0.3;
 }
 
 #status-indicator {
@@ -75,6 +213,7 @@ body {
     padding: 4px 8px;
     border: 1px solid #00f3ff;
     background: rgba(0, 243, 255, 0.1);
+    transition: all 0.25s ease;
 }
 
 .hud-footer {

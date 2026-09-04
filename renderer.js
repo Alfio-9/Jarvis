@@ -49,6 +49,13 @@ const cursorMesh = new THREE.Mesh(
 );
 scene.add(cursorMesh);
 
+const cursorMesh2 = new THREE.Mesh(
+    new THREE.SphereGeometry(0.1, 16, 16),
+    new THREE.MeshBasicMaterial({ color: 0x00f3ff, wireframe: true })
+);
+cursorMesh2.visible = false;
+scene.add(cursorMesh2);
+
 // Environment Setup
 function setupEnvironment() {
     const gridHelper = new THREE.GridHelper(30, 30, 0x00f3ff, 0x051923);
@@ -153,12 +160,13 @@ async function initHandTracking() {
         await new Promise((resolve) => (video.onloadedmetadata = resolve));
 
         const model = handPoseDetection.SupportedModels.MediaPipeHands;
-        
-        // Use MediaPipe runtime with local WASM assets
+
+        // Use MediaPipe runtime with local WASM assets (maxHands: 2 to support hand switching)
         const detectorConfig = {
             runtime: 'mediapipe',
             solutionPath: './node_modules/@mediapipe/hands',
             modelType: 'full',
+            maxHands: 2
             maxHands: 2
         };
 
@@ -171,6 +179,88 @@ async function initHandTracking() {
     }
 }
 
+// Sci-Fi Audio Feedback Synthesizer (Web Audio API)
+function playSciFiFeedback(freqStart = 700, freqEnd = 1200, duration = 0.12) {
+    try {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sine';
+        const now = audioCtx.currentTime;
+        osc.frequency.setValueAtTime(freqStart, now);
+        osc.frequency.exponentialRampToValueAtTime(freqEnd, now + duration);
+        gain.gain.setValueAtTime(0.12, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(now);
+        osc.stop(now + duration);
+    } catch (e) {
+        // Safe fallback
+    }
+}
+
+// Hand Switcher Controller
+export function setActiveHand(hand, playSound = true) {
+    state.activeHand = hand;
+    try {
+        localStorage.setItem('jarvis_active_hand', hand);
+    } catch (e) { }
+
+    const btn = document.getElementById('hand-toggle-btn');
+    const pillDx = document.getElementById('hand-pill-dx');
+    const pillSx = document.getElementById('hand-pill-sx');
+    const camTag = document.getElementById('webcam-hand-tag');
+
+    if (btn && pillDx && pillSx) {
+        if (hand === 'SX') {
+            btn.classList.add('is-sx');
+            pillDx.classList.remove('active');
+            pillSx.classList.add('active');
+            if (camTag) camTag.textContent = 'MANO SX';
+        } else {
+            btn.classList.remove('is-sx');
+            pillDx.classList.add('active');
+            pillSx.classList.remove('active');
+            if (camTag) camTag.textContent = 'MANO DX';
+        }
+    }
+
+    if (cursorMesh && cursorMesh.material) {
+        cursorMesh.material.color.setHex(hand === 'SX' ? 0xff0077 : 0x00f3ff);
+    }
+
+    if (playSound) {
+        if (hand === 'SX') {
+            playSciFiFeedback(500, 950, 0.12);
+        } else {
+            playSciFiFeedback(700, 1200, 0.12);
+        }
+    }
+
+    // Floating HUD status pulse
+    const statusElem = document.getElementById('status-indicator');
+    if (statusElem) {
+        const prevText = statusElem.textContent;
+        statusElem.textContent = `MANO ATTIVA: ${hand === 'DX' ? 'DESTRA (DX)' : 'SINISTRA (SX)'}`;
+        statusElem.style.borderColor = hand === 'SX' ? '#ff0077' : '#00f3ff';
+        statusElem.style.color = hand === 'SX' ? '#ff0077' : '#00f3ff';
+
+        setTimeout(() => {
+            if (statusElem.textContent.startsWith('MANO ATTIVA:')) {
+                statusElem.textContent = prevText.startsWith('MANO ATTIVA:') ? 'SYSTEM ONLINE // TRACKING ACTIVE' : prevText;
+                statusElem.style.borderColor = '#00f3ff';
+                statusElem.style.color = '#00f3ff';
+            }
+        }, 1500);
+    }
+}
+
+export function toggleActiveHand() {
+    const nextHand = state.activeHand === 'DX' ? 'SX' : 'DX';
+    setActiveHand(nextHand, true);
+}
+
 // Hand Tracking Frame Loop
 async function trackHands() {
     const video = document.getElementById('webcam');
@@ -178,37 +268,57 @@ async function trackHands() {
     if (state.detector && video.readyState >= 2) {
         const hands = await state.detector.estimateHands(video);
 
-        if (hands.length === 2) {
-            // Multi-Hand Gestures: Zoom & Spatial Orbit Rotation
+        if (hands && hands.length >= 2) {
+            // Render 2 Hand Cursors
+            cursorMesh.visible = true;
+            cursorMesh2.visible = true;
+
             const hand1Index = hands[0].keypoints.find((k) => k.name === 'index_finger_tip');
             const hand2Index = hands[1].keypoints.find((k) => k.name === 'index_finger_tip');
 
             if (hand1Index && hand2Index) {
+                // Hand 1 Cursor
+                const ndcX1 = -((hand1Index.x / video.videoWidth) * 2 - 1);
+                const ndcY1 = -((hand1Index.y / video.videoHeight) * 2 - 1);
+                const vec1 = new THREE.Vector3(ndcX1, ndcY1, 0.5).unproject(camera);
+                const dir1 = vec1.sub(camera.position).normalize();
+                const dist1 = -camera.position.z / dir1.z;
+                cursorMesh.position.copy(camera.position.clone().add(dir1.multiplyScalar(dist1)));
+
+                // Hand 2 Cursor
+                const ndcX2 = -((hand2Index.x / video.videoWidth) * 2 - 1);
+                const ndcY2 = -((hand2Index.y / video.videoHeight) * 2 - 1);
+                const vec2 = new THREE.Vector3(ndcX2, ndcY2, 0.5).unproject(camera);
+                const dir2 = vec2.sub(camera.position).normalize();
+                const dist2 = -camera.position.z / dir2.z;
+                cursorMesh2.position.copy(camera.position.clone().add(dir2.multiplyScalar(dist2)));
+
+                // 2-Hand Zoom Gesture
                 const dx = (hand1Index.x - hand2Index.x) / video.videoWidth;
                 const dy = (hand1Index.y - hand2Index.y) / video.videoHeight;
                 const currentDist = Math.sqrt(dx * dx + dy * dy);
 
                 if (state.lastHandDist !== null) {
                     const distDelta = currentDist - state.lastHandDist;
-                    // Zoom camera: Move hands apart to zoom in, close together to zoom out
                     camera.position.z = Math.max(3, Math.min(25, camera.position.z - distDelta * 18));
                 }
 
                 state.lastHandDist = currentDist;
                 document.getElementById('gesture-status').textContent = 'GESTURE: 2-HAND ZOOM';
             }
-        } else if (hands.length === 1) {
+        } else if (hands && hands.length === 1) {
+            cursorMesh.visible = true;
+            cursorMesh2.visible = false;
             state.lastHandDist = null;
+
             const keypoints = hands[0].keypoints;
             const indexTip = keypoints.find((k) => k.name === 'index_finger_tip');
             const thumbTip = keypoints.find((k) => k.name === 'thumb_tip');
 
             if (indexTip && thumbTip) {
-                // Normalize screen coordinates from video dimension to NDC space (-1 to +1)
-                const ndcX = -((indexTip.x / video.videoWidth) * 2 - 1); // Mirrored X mapping
+                const ndcX = -((indexTip.x / video.videoWidth) * 2 - 1);
                 const ndcY = -((indexTip.y / video.videoHeight) * 2 - 1);
 
-                // Map NDC space directly to 3D World space coordinates near camera target
                 const vector = new THREE.Vector3(ndcX, ndcY, 0.5);
                 vector.unproject(camera);
                 const dir = vector.sub(camera.position).normalize();
@@ -217,7 +327,6 @@ async function trackHands() {
 
                 cursorMesh.position.copy(targetPos);
 
-                // Pinch Detection: Euclidean distance in normalized coordinate space
                 const dx = (indexTip.x - thumbTip.x) / video.videoWidth;
                 const dy = (indexTip.y - thumbTip.y) / video.videoHeight;
                 const pinchDist = Math.sqrt(dx * dx + dy * dy);
@@ -226,12 +335,28 @@ async function trackHands() {
                 processGestures(targetPos, pinchDist, ndcVec);
             }
         } else {
+            cursorMesh.visible = false;
+            cursorMesh2.visible = false;
             state.lastHandDist = null;
             document.getElementById('gesture-status').textContent = 'GESTURE: SEARCHING';
         }
     }
 
     requestAnimationFrame(trackHands);
+}
+
+// Safety: release grab if hand is lost mid-drag
+if (state.isGrabbing && state.selectedNode) {
+    state.isGrabbing = false;
+    saveCurrentLayout();
+    state.selectedNode = null;
+}
+state.lastHandDist = null;
+document.getElementById('gesture-status').textContent = 'GESTURE: SEARCHING';
+        }
+    }
+
+requestAnimationFrame(trackHands);
 }
 
 // Spatial Gesture Processing Logic
@@ -363,3 +488,22 @@ initDesktop()
         initHandTracking();
         animate();
     });
+
+// Event Listeners for Hand Switcher
+const handToggleBtn = document.getElementById('hand-toggle-btn');
+if (handToggleBtn) {
+    handToggleBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleActiveHand();
+    });
+}
+
+window.addEventListener('keydown', (e) => {
+    if (e.key === 'h' || e.key === 'H') {
+        toggleActiveHand();
+    }
+});
+
+// Initialize UI with persistent active hand
+setActiveHand(state.activeHand, false);

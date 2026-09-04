@@ -51,6 +51,7 @@ Jarvis
 
 | Gesto | Descrizione Meccanica | Azione Eseguita |
 | :--- | :--- | :--- |
+| **Cambio Mano (DX / SX)** | Click sull'icona HUD `MANO: DX / SX` o tasto `H` | Alterna il tracciamento della mano attiva tra Destra (DX) e Sinistra (SX) |
 | **Puntatore (Free Move)** | Muovi la mano mantenendo pollice e indice aperti | Sposta la sfera olografica del cursore nella scena 3D |
 | **Pinch & Drag** | Unisci punta dell'indice e punta del pollice sopra un nodo | Afferra il nodo selezionato e lo trascina nello spazio 3D |
 | **Rilascio** | Apri nuovamente indice e pollice | Rilascia il nodo e salva automaticamente le nuove coordinate |
