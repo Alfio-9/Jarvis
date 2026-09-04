@@ -12,7 +12,7 @@ const state = {
     isGrabbing: false,
     detector: null,
     lastTapTime: 0,
-    pinchThreshold: 0.05,
+    pinchThreshold: 0.08,
     tapCooldown: false
 };
 
@@ -222,7 +222,8 @@ async function trackHands() {
                 const dy = (indexTip.y - thumbTip.y) / video.videoHeight;
                 const pinchDist = Math.sqrt(dx * dx + dy * dy);
 
-                processGestures(targetPos, pinchDist);
+                const ndcVec = new THREE.Vector2(ndcX, ndcY);
+                processGestures(targetPos, pinchDist, ndcVec);
             }
         } else {
             state.lastHandDist = null;
@@ -234,32 +235,39 @@ async function trackHands() {
 }
 
 // Spatial Gesture Processing Logic
-function processGestures(cursorPos, pinchDist) {
+function processGestures(cursorPos, pinchDist, ndcVec) {
     const statusElem = document.getElementById('gesture-status');
 
-    // Check ray intersection against active desktop nodes
-    raycaster.setFromCamera(
-        new THREE.Vector2(
-            (cursorPos.x / window.innerWidth) * 2 - 1,
-            -(cursorPos.y / window.innerHeight) * 2 + 1
-        ),
-        camera
-    );
+    // Check ray intersection against active desktop nodes using true NDC coordinates
+    raycaster.setFromCamera(ndcVec, camera);
 
     const meshes = Array.from(state.nodes.values()).map((n) => n.mesh);
     const intersects = raycaster.intersectObjects(meshes);
 
     if (pinchDist < state.pinchThreshold) {
-        statusElem.textContent = 'GESTURE: PINCH/PICK';
-
         if (!state.isGrabbing) {
+            // Find intersected node or nearest node to hand cursor
+            let targetMesh = null;
             if (intersects.length > 0) {
-                state.selectedNode = intersects[0].object;
-                state.isGrabbing = true;
+                targetMesh = intersects[0].object;
+            } else {
+                // Proximity check fallback: pick node within 1.5 units of cursor
+                for (const mesh of meshes) {
+                    if (mesh.position.distanceTo(cursorPos) < 1.5) {
+                        targetMesh = mesh;
+                        break;
+                    }
+                }
+            }
 
-                // Double Pinch / Air Tap Detection
+            if (targetMesh) {
+                state.selectedNode = targetMesh;
+                state.isGrabbing = true;
+                statusElem.textContent = 'GESTURE: PICK / GRABBED';
+
+                // Double Pinch / Air Tap Detection (600ms window)
                 const now = Date.now();
-                if (now - state.lastTapTime < 400 && !state.tapCooldown) {
+                if (now - state.lastTapTime < 600 && !state.tapCooldown) {
                     triggerFileOpen(state.selectedNode.userData.path);
                     state.tapCooldown = true;
                     setTimeout(() => (state.tapCooldown = false), 1000);
@@ -267,11 +275,16 @@ function processGestures(cursorPos, pinchDist) {
                 state.lastTapTime = now;
             }
         } else if (state.selectedNode) {
+            statusElem.textContent = 'GESTURE: DRAGGING NODE';
             // Drag node along with active spatial hand cursor
             state.selectedNode.position.copy(cursorPos);
         }
     } else {
-        statusElem.textContent = intersects.length > 0 ? 'GESTURE: HOVER' : 'GESTURE: IDLE';
+        if (intersects.length > 0) {
+            statusElem.textContent = 'GESTURE: HOVER (' + intersects[0].object.userData.name + ')';
+        } else {
+            statusElem.textContent = 'GESTURE: IDLE';
+        }
 
         if (state.isGrabbing && state.selectedNode) {
             // Release Grab Action & Save Node Layout Position
