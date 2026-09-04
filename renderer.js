@@ -159,7 +159,7 @@ async function initHandTracking() {
             runtime: 'mediapipe',
             solutionPath: './node_modules/@mediapipe/hands',
             modelType: 'full',
-            maxHands: 1
+            maxHands: 2
         };
 
         state.detector = await handPoseDetection.createDetector(model, detectorConfig);
@@ -178,7 +178,27 @@ async function trackHands() {
     if (state.detector && video.readyState >= 2) {
         const hands = await state.detector.estimateHands(video);
 
-        if (hands.length > 0) {
+        if (hands.length === 2) {
+            // Multi-Hand Gestures: Zoom & Spatial Orbit Rotation
+            const hand1Index = hands[0].keypoints.find((k) => k.name === 'index_finger_tip');
+            const hand2Index = hands[1].keypoints.find((k) => k.name === 'index_finger_tip');
+
+            if (hand1Index && hand2Index) {
+                const dx = (hand1Index.x - hand2Index.x) / video.videoWidth;
+                const dy = (hand1Index.y - hand2Index.y) / video.videoHeight;
+                const currentDist = Math.sqrt(dx * dx + dy * dy);
+
+                if (state.lastHandDist !== null) {
+                    const distDelta = currentDist - state.lastHandDist;
+                    // Zoom camera: Move hands apart to zoom in, close together to zoom out
+                    camera.position.z = Math.max(3, Math.min(25, camera.position.z - distDelta * 18));
+                }
+
+                state.lastHandDist = currentDist;
+                document.getElementById('gesture-status').textContent = 'GESTURE: 2-HAND ZOOM';
+            }
+        } else if (hands.length === 1) {
+            state.lastHandDist = null;
             const keypoints = hands[0].keypoints;
             const indexTip = keypoints.find((k) => k.name === 'index_finger_tip');
             const thumbTip = keypoints.find((k) => k.name === 'thumb_tip');
@@ -205,6 +225,7 @@ async function trackHands() {
                 processGestures(targetPos, pinchDist);
             }
         } else {
+            state.lastHandDist = null;
             document.getElementById('gesture-status').textContent = 'GESTURE: SEARCHING';
         }
     }
@@ -229,7 +250,7 @@ function processGestures(cursorPos, pinchDist) {
     const intersects = raycaster.intersectObjects(meshes);
 
     if (pinchDist < state.pinchThreshold) {
-        statusElem.textContent = 'GESTURE: PINCH/GRAB';
+        statusElem.textContent = 'GESTURE: PINCH/PICK';
 
         if (!state.isGrabbing) {
             if (intersects.length > 0) {
