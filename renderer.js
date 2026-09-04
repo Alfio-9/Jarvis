@@ -285,6 +285,10 @@ async function trackHands() {
 
             const hand1Index = primaryHand.keypoints.find((k) => k.name === 'index_finger_tip');
             const hand2Index = secondaryHand.keypoints.find((k) => k.name === 'index_finger_tip');
+            const hand1Thumb = primaryHand.keypoints.find((k) => k.name === 'thumb_tip');
+            const hand2Thumb = secondaryHand.keypoints.find((k) => k.name === 'thumb_tip');
+            const hand1Middle = primaryHand.keypoints.find((k) => k.name === 'middle_finger_tip');
+            const hand2Middle = secondaryHand.keypoints.find((k) => k.name === 'middle_finger_tip');
 
             if (hand1Index && hand2Index) {
                 // Hand 1 Cursor (Primary / Active Hand)
@@ -293,7 +297,8 @@ async function trackHands() {
                 const vec1 = new THREE.Vector3(ndcX1, ndcY1, 0.5).unproject(camera);
                 const dir1 = vec1.sub(camera.position).normalize();
                 const dist1 = -camera.position.z / dir1.z;
-                cursorMesh.position.copy(camera.position.clone().add(dir1.multiplyScalar(dist1)));
+                const targetPos1 = camera.position.clone().add(dir1.multiplyScalar(dist1));
+                cursorMesh.position.copy(targetPos1);
 
                 // Hand 2 Cursor (Secondary Hand)
                 const ndcX2 = -((hand2Index.x / video.videoWidth) * 2 - 1);
@@ -301,29 +306,79 @@ async function trackHands() {
                 const vec2 = new THREE.Vector3(ndcX2, ndcY2, 0.5).unproject(camera);
                 const dir2 = vec2.sub(camera.position).normalize();
                 const dist2 = -camera.position.z / dir2.z;
-                cursorMesh2.position.copy(camera.position.clone().add(dir2.multiplyScalar(dist2)));
+                const targetPos2 = camera.position.clone().add(dir2.multiplyScalar(dist2));
+                cursorMesh2.position.copy(targetPos2);
 
-                // 2-Hand Zoom Gesture
-                const dx = (hand1Index.x - hand2Index.x) / video.videoWidth;
-                const dy = (hand1Index.y - hand2Index.y) / video.videoHeight;
-                const currentDist = Math.sqrt(dx * dx + dy * dy);
-
-                if (state.lastHandDist !== null) {
-                    const distDelta = currentDist - state.lastHandDist;
-                    camera.position.z = Math.max(3, Math.min(25, camera.position.z - distDelta * 18));
+                // Compute pinch / pick distance (index + thumb) for both hands
+                let isHand1Pinching = false;
+                let pinchDist1 = 1.0;
+                if (hand1Thumb) {
+                    const dx1 = (hand1Index.x - hand1Thumb.x) / video.videoWidth;
+                    const dy1 = (hand1Index.y - hand1Thumb.y) / video.videoHeight;
+                    pinchDist1 = Math.sqrt(dx1 * dx1 + dy1 * dy1);
+                    isHand1Pinching = pinchDist1 < state.pinchThreshold;
                 }
 
-                state.lastHandDist = currentDist;
-                document.getElementById('gesture-status').textContent = 'GESTURE: 2-HAND ZOOM';
+                let isHand2Pinching = false;
+                let pinchDist2 = 1.0;
+                if (hand2Thumb) {
+                    const dx2 = (hand2Index.x - hand2Thumb.x) / video.videoWidth;
+                    const dy2 = (hand2Index.y - hand2Thumb.y) / video.videoHeight;
+                    pinchDist2 = Math.sqrt(dx2 * dx2 + dy2 * dy2);
+                    isHand2Pinching = pinchDist2 < state.pinchThreshold;
+                }
+
+                // Compute middle pinch (middle + thumb) for primary active hand
+                let isHand1MiddlePinch = false;
+                let middlePinchDist1 = 1.0;
+                if (hand1Thumb && hand1Middle) {
+                    const dxM1 = (hand1Middle.x - hand1Thumb.x) / video.videoWidth;
+                    const dyM1 = (hand1Middle.y - hand1Thumb.y) / video.videoHeight;
+                    middlePinchDist1 = Math.sqrt(dxM1 * dxM1 + dyM1 * dyM1);
+                    isHand1MiddlePinch = middlePinchDist1 < state.pinchThreshold;
+                }
+
+                cursorMesh.scale.setScalar(isHand1MiddlePinch ? 1.6 : (isHand1Pinching ? 1.4 : 1.0));
+                cursorMesh2.scale.setScalar(isHand2Pinching ? 1.4 : 1.0);
+
+                // Lo zoom e de-zoom viene effettuato SOLO se entrambe le mani sono visibili E in pick (pinch)
+                if (isHand1Pinching && isHand2Pinching) {
+                    if (state.isGrabbing && state.selectedNode) {
+                        state.isGrabbing = false;
+                        saveCurrentLayout();
+                        state.selectedNode = null;
+                    }
+
+                    const dx = (hand1Index.x - hand2Index.x) / video.videoWidth;
+                    const dy = (hand1Index.y - hand2Index.y) / video.videoHeight;
+                    const currentDist = Math.sqrt(dx * dx + dy * dy);
+
+                    if (state.lastHandDist !== null) {
+                        const distDelta = currentDist - state.lastHandDist;
+                        camera.position.z = Math.max(3, Math.min(25, camera.position.z - distDelta * 18));
+                    }
+
+                    state.lastHandDist = currentDist;
+                    document.getElementById('gesture-status').textContent = 'GESTURE: 2-HAND ZOOM (PICK)';
+                } else {
+                    // Reset distanza se una o entrambe le mani rilasciano il pick
+                    state.lastHandDist = null;
+
+                    // Interazione con la mano attiva primaria (include middle pinch per apertura)
+                    const ndcVec1 = new THREE.Vector2(ndcX1, ndcY1);
+                    processGestures(targetPos1, pinchDist1, ndcVec1, middlePinchDist1);
+                }
             }
         } else if (hands && hands.length === 1) {
             cursorMesh.visible = true;
             cursorMesh2.visible = false;
+            cursorMesh2.scale.setScalar(1.0);
             state.lastHandDist = null;
 
             const keypoints = hands[0].keypoints;
             const indexTip = keypoints.find((k) => k.name === 'index_finger_tip');
             const thumbTip = keypoints.find((k) => k.name === 'thumb_tip');
+            const middleTip = keypoints.find((k) => k.name === 'middle_finger_tip');
 
             if (indexTip && thumbTip) {
                 const ndcX = -((indexTip.x / video.videoWidth) * 2 - 1);
@@ -337,16 +392,30 @@ async function trackHands() {
 
                 cursorMesh.position.copy(targetPos);
 
+                // Index + Thumb pinch (Pick / Drag)
                 const dx = (indexTip.x - thumbTip.x) / video.videoWidth;
                 const dy = (indexTip.y - thumbTip.y) / video.videoHeight;
                 const pinchDist = Math.sqrt(dx * dx + dy * dy);
 
+                // Middle + Thumb pinch (Open Folder / File)
+                let middlePinchDist = 1.0;
+                if (middleTip) {
+                    const dxM = (middleTip.x - thumbTip.x) / video.videoWidth;
+                    const dyM = (middleTip.y - thumbTip.y) / video.videoHeight;
+                    middlePinchDist = Math.sqrt(dxM * dxM + dyM * dyM);
+                }
+
+                const isMiddlePinch = middlePinchDist < state.pinchThreshold;
+                cursorMesh.scale.setScalar(isMiddlePinch ? 1.6 : (pinchDist < state.pinchThreshold ? 1.4 : 1.0));
+
                 const ndcVec = new THREE.Vector2(ndcX, ndcY);
-                processGestures(targetPos, pinchDist, ndcVec);
+                processGestures(targetPos, pinchDist, ndcVec, middlePinchDist);
             }
         } else {
             cursorMesh.visible = false;
             cursorMesh2.visible = false;
+            cursorMesh.scale.setScalar(1.0);
+            cursorMesh2.scale.setScalar(1.0);
             state.lastHandDist = null;
             document.getElementById('gesture-status').textContent = `GESTURE: SEARCHING [${state.activeHand}]`;
 
@@ -363,7 +432,7 @@ async function trackHands() {
 }
 
 // Spatial Gesture Processing Logic
-function processGestures(cursorPos, pinchDist, ndcVec) {
+function processGestures(cursorPos, pinchDist, ndcVec, middlePinchDist = 1.0) {
     const statusElem = document.getElementById('gesture-status');
 
     // Check ray intersection against active desktop nodes using true NDC coordinates
@@ -372,35 +441,50 @@ function processGestures(cursorPos, pinchDist, ndcVec) {
     const meshes = Array.from(state.nodes.values()).map((n) => n.mesh);
     const intersects = raycaster.intersectObjects(meshes);
 
-    if (pinchDist < state.pinchThreshold) {
-        if (!state.isGrabbing) {
-            // Find intersected node or nearest node to hand cursor
-            let targetMesh = null;
-            if (intersects.length > 0) {
-                targetMesh = intersects[0].object;
-            } else {
-                // Proximity check fallback: pick node within 1.5 units of cursor
-                for (const mesh of meshes) {
-                    if (mesh.position.distanceTo(cursorPos) < 1.5) {
-                        targetMesh = mesh;
-                        break;
-                    }
-                }
+    // Find intersected node or nearest node to hand cursor
+    let targetMesh = null;
+    if (intersects.length > 0) {
+        targetMesh = intersects[0].object;
+    } else {
+        // Proximity check fallback: pick node within 1.5 units of cursor
+        for (const mesh of meshes) {
+            if (mesh.position.distanceTo(cursorPos) < 1.5) {
+                targetMesh = mesh;
+                break;
+            }
+        }
+    }
+
+    // Apertura Cartella / File: Gesture POLLICE + MEDIO (Middle Finger Pinch)
+    const isMiddlePinch = middlePinchDist < state.pinchThreshold;
+    if (isMiddlePinch) {
+        const nodeToOpen = state.selectedNode || targetMesh;
+        if (nodeToOpen && !state.tapCooldown) {
+            state.tapCooldown = true;
+            statusElem.textContent = `GESTURE: OPEN // ${nodeToOpen.userData.name.toUpperCase()} [${state.activeHand}]`;
+            playSciFiFeedback(900, 1800, 0.25);
+            triggerFileOpen(nodeToOpen.userData.path, nodeToOpen.userData.type);
+
+            if (state.isGrabbing) {
+                state.isGrabbing = false;
+                state.selectedNode = null;
             }
 
+            setTimeout(() => (state.tapCooldown = false), 1200);
+            return;
+        } else if (!nodeToOpen) {
+            statusElem.textContent = `GESTURE: MIDDLE PINCH (NO TARGET) [${state.activeHand}]`;
+            return;
+        }
+    }
+
+    // Pick / Drag: Gesture POLLICE + INDICE (Index Finger Pinch)
+    if (pinchDist < state.pinchThreshold) {
+        if (!state.isGrabbing) {
             if (targetMesh) {
                 state.selectedNode = targetMesh;
                 state.isGrabbing = true;
                 statusElem.textContent = `GESTURE: PICK / GRABBED [${state.activeHand}]`;
-
-                // Double Pinch / Air Tap Detection (600ms window)
-                const now = Date.now();
-                if (now - state.lastTapTime < 600 && !state.tapCooldown) {
-                    triggerFileOpen(state.selectedNode.userData.path);
-                    state.tapCooldown = true;
-                    setTimeout(() => (state.tapCooldown = false), 1000);
-                }
-                state.lastTapTime = now;
             }
         } else if (state.selectedNode) {
             statusElem.textContent = `GESTURE: DRAGGING NODE [${state.activeHand}]`;
@@ -423,8 +507,9 @@ function processGestures(cursorPos, pinchDist, ndcVec) {
     }
 }
 
-async function triggerFileOpen(path) {
-    document.getElementById('status-indicator').textContent = 'LAUNCHING APPLICATION...';
+async function triggerFileOpen(path, type = 'folder') {
+    const label = type === 'folder' ? 'OPENING FOLDER...' : 'LAUNCHING APPLICATION...';
+    document.getElementById('status-indicator').textContent = label;
     await window.jarvisAPI.openFile(path);
     setTimeout(() => {
         document.getElementById('status-indicator').textContent = 'SYSTEM ONLINE // TRACKING ACTIVE';
